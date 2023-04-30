@@ -1,3 +1,4 @@
+install.packages("patchwork")
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -38,76 +39,64 @@ df_summary <- df %>%
 
 str(df_summary)
 
-p_N <- ggplot(data = df, aes(x = date, y = Nmin, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + 
-  labs(title="N min", y = "Nmin [kg/ha]", x = "") +
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
+plot_boxplot <- function(data, x, y, title, ylab){
+  ggplot(data = data, aes(x = {{x}}, y = {{y}}, group = interaction({{x}}))) +
+    geom_boxplot(outlier.size=0.5) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + 
+    labs(title = title, y = ylab) +
+    scale_x_date(date_breaks = "1 months") + 
+    scale_x_date(date_labels = "%b-%Y")
+}
 
-p_P <- ggplot(data = df, aes(x = date, y = P, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(title="P - Phosphor", y = "P [mg/100g]", x = "") + 
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
+p_N   <- plot_boxplot(df,date,Nmin,"Nmin","Nmin [kg/ha]")
+p_P   <- plot_boxplot(df,date,P,"Phospor","P [mg/100g]")
+p_K   <- plot_boxplot(df,date,K,"K - Potassium","K [mg/100g]")
+p_SOC <- plot_boxplot(df,date,SOC,"SOC","Soil Organic Carbon [%]")
+p_MC  <- plot_boxplot(df,date,MC,"Moisture Content","MC [%]")
+p_pH  <- plot_boxplot(df,date,pH,"pH","pH")
 
-p_K <- ggplot(data = df, aes(x = date, y = K, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(title="K - Potassium", y = "K [mg/100g]", x = "") + 
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
-
-p_SOC <- ggplot(data = df, aes(x = date, y = SOC, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(title="SOC - Soil Organic Carbon", y = "SOC [%]", x = "") + 
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
-
-p_MC <- ggplot(data = df, aes(x = date, y = MC, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(title="Moisture content", y = "Moisture content [%]", x = "") + 
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
-
-p_pH <- ggplot(data = df, aes(x = date, y = pH, group=interaction(date))) +
-  geom_boxplot(outlier.size=0.5) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(title="pH", y = "pH", x = "") + 
-  scale_x_date(date_breaks = "1 months") + 
-  scale_x_date(date_labels = "%b-%Y")
+( p_N  | p_P  | p_K) /
+( p_SOC | p_MC | p_pH)
 
 #(p_N | p_P) /
 #(p_K | p_SOC) /
 #(p_MC| p_pH)
 
-( p_N  | p_P  | p_K) /
-( p_SOC | p_MC | p_pH)
-
-
 df_z <- df %>%
   group_by(date) %>%
   mutate_at(vars(4:9), ~scale(.)) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(across(4:9, round, digits = 2))
 
-df_z <- df_z %>% 
-  mutate(across(4:9, ~ifelse(abs(.) > 2.5, NA, .)))
+#df_z <- df_z %>% 
+#  mutate(across(4:9, ~ifelse(abs(.) > 2.5, NA, .)))
+
+# Filter for rows where less than 2 values are greater than 2.5
+df_z <- df_z %>%
+  filter(rowSums(abs(.[4:10]) > 2.5) < 2) 
+
+print(paste0(nrow(df)-nrow(df_z)," from ",nrow(df)," deleted"))
 
 dev.off()
-ggplot(data = df_z, aes(x = long, y = lat, color = SOC)) +
-  geom_point(size = 2) +
-  scale_colour_gradientn(colours=rainbow(4)) +
-  theme_classic()
 
+plot_map <- function(data, x, y, color, colors, size = 2){
+  ggplot(data = data, aes(x = {{x}}, y = {{y}}, color = {{color}})) +
+    geom_point(size = size) +
+    scale_color_gradientn(colors = colors) +
+    labs(title = "", y = "", x = "") +
+    theme_classic()
+}
+
+map_N <- plot_map(df_z,long,lat,color=Nmin,rainbow(4))
+map_P <- plot_map(df_z,long,lat,color=P,rainbow(4))
+map_K <- plot_map(df_z,long,lat,color=K,rainbow(4))
+map_SOC <- plot_map(df_z,long,lat,color=SOC,rainbow(4))
+map_MC <- plot_map(df_z,long,lat,color=MC,rainbow(4))
+map_pH <- plot_map(df_z,long,lat,color=pH,rainbow(4))
+
+( map_N  | map_P  | map_K) /
+( map_SOC | map_MC | map_pH)
 
 # Make a SpatialPointsDataFrame
 data        <- df_z[ , c(4:12)]
