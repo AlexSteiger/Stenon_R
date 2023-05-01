@@ -8,11 +8,11 @@ library(rgdal)
 library(gstat) # IDW
 
 # vorher "farmlab export Uni Rostock GG.csv" mit Notepad++ in UTF-8 umwandeln
-input <- read.csv("input/farmlab export Uni Rostock GG(3).csv", sep =",", dec= ".", header = TRUE)
+input <- read.csv("input/farmlab export Uni Rostock GG(1).csv", sep =",", dec= ".", header = TRUE)
 field_name <- input[1,4]
 print(field_name)
 
-df <- input[, c(3,5,6,8,14,16,18,20,22,28,37,30)]
+df <- input[, c(3,5,6,8,14,16,18,20,22,28,30,37)]
 str(df)
 df <- df %>% 
   rename(
@@ -27,23 +27,42 @@ df <- df %>%
     texture = Soil.texture.class.
   )
 
-df[, 2:11] <- lapply(df[, 2:11], as.numeric)
+df[, 2:9] <- lapply(df[, 2:9], as.numeric)
 
 # Add Date column
 df$date <- as.Date(df$timestamp)
 
+# If dates are more than 3 days apart, overwrite with the newer date
+for (x in c(1:30)){
+df <- df %>% 
+  arrange(timestamp) %>% 
+  mutate(date = ifelse(abs(date - lag(date, default = date[3])) <= 3, 
+                               lag(date, default = date[3]), date))
+}
+
+df$date <- as.Date(df$date, origin = "1970-01-01")
+
 str(df)
 
+##############################################################################
+## Lab Data
+
+#lab <- read.csv("input/2022_kassow_lab_data.csv", sep =",", dec= ".", header = TRUE,fileEncoding="utf-8")
+
+#ggplot() +
+#  geom_point(data=lab, aes(x = long, y = lat,color = pH)) +
+#  scale_color_distiller(type="div",na.value = NA)
+
+#  scale_color_distiller(type="seq", palette="YlOrRd",name="Ton",na.value = NA) +
 ##############################################################################
 ## Boxplots
 
 # Group the data by date and
 # calculate the mean and standard deviation for column 4 to 12 for each date
-df_summary <- df %>% 
-  group_by(date) %>% 
-  summarise_at(vars(4:11), list(mean=mean, sd=sd))
-
-str(df_summary)
+#df_summary <- df %>% 
+#  group_by(date) %>% 
+#  summarise_at(vars(4:11), list(mean=mean, sd=sd))
+#str(df_summary)
 
 plot_boxplot <- function(data, x, y, title, ylab){
   ggplot(data = data, aes(x = {{x}}, y = {{y}}, group = interaction({{x}}))) +
@@ -65,14 +84,14 @@ p_pH  <- plot_boxplot(df,date,pH,"pH","pH")
 p_Mg  <- plot_boxplot(df,date,Mg,"Mg","Magnesium [mg/100g]")
 p_Tmp <- plot_boxplot(df,date,Soil_Temp,"Soil Temperature","Temperature [°C]")
 
-
 (p_N|p_P|p_K|p_Mg) / (p_SOC|p_MC|p_pH|p_Tmp)
 p <- (p_N|p_P|p_K|p_Mg) / (p_SOC|p_MC|p_pH|p_Tmp)
 ggsave(paste0("Boxplot_",field_name,".png"), p,width=9,height=5.5)
 
+rm(p,p_N,p_P,p_K,p_SOC,p_MC,p_pH,p_Mg,p_Tmp)
+
 ##############################################################################
 ## Z-Maps
-
 # Normalization
 df_z <- df %>%
   group_by(date) %>%
@@ -85,7 +104,7 @@ df_z_outliers <- df_z %>%
 
 # Filter out rows where more than 2 values are greater than 2.5
 df_z <- df_z %>%
-  filter(rowSums(abs(.[4:10]) > 2.5) < 2) 
+  filter(rowSums(abs(.[4:10]) > 2.5) < 2)
 
 print(paste0(nrow(df)-nrow(df_z)," from ",nrow(df)," deleted"))
 
@@ -93,19 +112,29 @@ dev.off() #sometimes ggplot doesn't work without this
 
 plot_map <- function(data, x, y, color){
   ggplot(data = data, aes(x = {{x}}, y = {{y}}, color = {{color}})) +
-    geom_point(size = 1) +
-    scale_color_gradientn(colors = rainbow(5)) +
-    labs(title = "") +
+    geom_point(size = 1.5) +
+    scale_colour_gradientn(colours = rainbow(5)) +
     theme_classic() +
     theme(axis.title.x = element_blank()) +
     theme(axis.title.y = element_blank()) +
-    theme(axis.text.x = element_text(size=6)) +
-    theme(axis.text.y = element_text(size=6,angle=90,hjust=0.5))
+    theme(axis.text.x = element_text(size=5)) +
+    theme(axis.text.y = element_text(size=5,angle=90,hjust=0.5))
 }
+
+map_T <- ggplot(data = df, aes(x = long, y = lat, color = factor(texture))) +
+  geom_point(size = 1) +
+#  scale_color_gradient2(low ="red",mid="white",high="blue", limits = c(-3,3)) +
+#  scale_color_distiller(type="div",palette ="Spectral") +
+#  scale_color_fermenter(type="div") #continuous -> discrete scale
+  scale_color_brewer(type="seq", palette="OrRd",name="Textur") +
+  theme_classic() +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.text.x = element_text(size=5)) +
+  theme(axis.text.y = element_text(size=5,angle=90,hjust=0.5))
 
 map_N   <- plot_map(df_z,long,lat,color=Nmin)
 map_P   <- plot_map(df_z,long,lat,color=P)
-map_T   <- plot_map(df_z,long,lat,color=texture)
 map_SOC <- plot_map(df_z,long,lat,color=SOC)
 map_MC  <- plot_map(df_z,long,lat,color=MC)
 map_pH  <- plot_map(df_z,long,lat,color=pH)
@@ -115,6 +144,8 @@ map_K   <- plot_map(df_z,long,lat,color=K)
 (map_N|map_P|map_K|map_Mg)/( map_SOC|map_MC|map_pH|map_T)
 p_map <- (map_N|map_P|map_K|map_Mg)/( map_SOC|map_MC|map_pH|map_T)
 ggsave(paste0("zmap_",field_name,".png"),p_map,width=10,height=3.5)
+
+rm(p_map,map_T,map_N,map_P,map_SOC,map_MC,map_pH,map_Mg,map_K)
 
 ##############################################################################
 ## k-means clustering
@@ -164,30 +195,30 @@ ggplot(df_z, aes(x = long, y = lat, color = as.factor(cluster))) +
 #MC + pH = 0.36
 
 # Make a SpatialPointsDataFrame
-data        <- df_z[ , c(4:12)]
-coords      <- df_z[ , c("long", "lat")]
-crs         <- CRS("+init=epsg:4326") # => [+proj=longlat +datum=WGS84]
-spdf <- SpatialPointsDataFrame(coords             = coords,
+#data        <- df_z[ , c(4:12)]
+#coords      <- df_z[ , c("long", "lat")]
+#crs         <- CRS("+init=epsg:4326") # => [+proj=longlat +datum=WGS84]
+#spdf <- SpatialPointsDataFrame(coords             = coords,
                                data        = data, 
                                proj4string = crs)
 
-plot(spdf)
+#plot(spdf)
 
 # Create an empty grid using the extends of the spdf with Pixel Size 5 meter
-bbox <- st_bbox(spdf)
+#bbox <- st_bbox(spdf)
 
-cell_size <- 5
-x <- seq(bbox$xmin, bbox$xmax, by=cell_size)
-y <- seq(bbox$ymin, bbox$ymax, by=cell_size)
-grd <- expand.grid(x=x, y=y)
-names(grd)       <- c("X", "Y")
-coordinates(grd) <- c("X", "Y")
-gridded(grd)     <- TRUE  # Create SpatialPixel object
-fullgrid(grd)    <- TRUE  # Create SpatialGrid object
+#cell_size <- 5
+#x <- seq(bbox$xmin, bbox$xmax, by=cell_size)
+#y <- seq(bbox$ymin, bbox$ymax, by=cell_size)
+#grd <- expand.grid(x=x, y=y)
+#names(grd)       <- c("X", "Y")
+#coordinates(grd) <- c("X", "Y")
+#gridded(grd)     <- TRUE  # Create SpatialPixel object
+#fullgrid(grd)    <- TRUE  # Create SpatialGrid object
 # Add P's projection information to the empty grid
-proj4string(grd) <- proj4string(sensor.spdf)
+#proj4string(grd) <- proj4string(sensor.spdf)
 
-spdf <- spTransform(spdf, CRS=CRS("+init=epsg:32623"))
+#spdf <- spTransform(spdf, CRS=CRS("+init=epsg:32623"))
 
 
 
