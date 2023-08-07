@@ -1,4 +1,3 @@
-install.packages("patchwork")
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -13,11 +12,14 @@ input <- rbind(input,(read.csv("input/farmlab export Uni Rostock GG(1).csv", sep
 input <- rbind(input,(read.csv("input/farmlab export Uni Rostock GG(2).csv", sep =",", dec= ".", header = TRUE)))
 input <- rbind(input,(read.csv("input/farmlab export Uni Rostock GG(3).csv", sep =",", dec= ".", header = TRUE)))
 
-df <- input[, c(3,5,6,8,14,16,18,20,22,28,30,37,4)]
+df <- input[, c("Timestamp","Nmin..kg.ha.","P..mg.100g.","K..beta...mg.100g.","Moisture....",
+                "SOC....","pH.","Mg..mg.100g.","Soil.Temperature...C.","Texture","Field.name")]
+#df <- input[, c(3,5,6,8,14,16,18,20,22,28,30,37,4)]
 
 str(df)
 df <- df %>% 
   rename(
+    timestamp = Timestamp,
     Nmin = Nmin..kg.ha.,
     P = P..mg.100g.,
     K = K..beta...mg.100g.,
@@ -26,8 +28,8 @@ df <- df %>%
     pH = pH.,
     Mg = Mg..mg.100g.,
     Soil_Temp = Soil.Temperature...C.,
-    texture = Soil.texture.class.,
-    field = paddockNames
+    Texture = Texture,
+    field = Field.name
   )
 
 df[, 2:9] <- lapply(df[, 2:9], as.numeric)
@@ -80,7 +82,7 @@ plot_points <- function(data, x, y, title, ylab){
     theme(legend.title = element_blank()) +
     scale_x_date(date_breaks = "1 months") + 
     scale_x_date(date_labels = "%b-%Y") +
-    theme(axis.text.x = element_text(size=8,angle=45,vjust=1,hjust=1)) +
+    theme(axis.text.x = element_text(size=8,angle=30,vjust=1,hjust=1)) +
     guides(colour = guide_legend(override.aes = list(shape=16, alpha=1)))
 }
 
@@ -99,7 +101,7 @@ p <- combined + plot_layout(guides = "collect")
 ggsave(paste0("Points_all_fields_all_parameter.png"), p,width=10,height=5)
 
 rm(p,p_N,p_P,p_K,p_SOC,p_MC,p_pH,p_Mg,p_Tmp)
-
+rm(combined)
 
 ##############################################################################
 ## Line Plots
@@ -107,14 +109,14 @@ rm(p,p_N,p_P,p_K,p_SOC,p_MC,p_pH,p_Mg,p_Tmp)
 # calculate the mean and standard deviation for column 4 to 12 for each date
 df_summary <- df %>% 
   group_by(date,field) %>% 
-  summarise_at(vars(4:11), list(median=median, sd=sd))
+  summarise_at(vars(2:9), list(median=median, sd=sd))
 str(df_summary)
 
 plot_lines <- function(data, x, y, sd, title, ylab){
   ggplot(data, aes(x = {{x}}, y = {{y}}, color=field, group=field)) +
     geom_point() +
     geom_line(linewidth = 1) + 
-    geom_errorbar(aes(ymin={{y}}-{{sd}}, ymax={{y}}+{{sd}}),width=3,linewidth = 0.5) +
+    geom_errorbar(aes(ymin={{y}}-{{sd}}, ymax={{y}}+{{sd}}),width=5,linewidth =0.6,alpha=0.4) +
     theme_classic() +
     labs(title = title, y = ylab) +
     theme(axis.title.x = element_blank()) +
