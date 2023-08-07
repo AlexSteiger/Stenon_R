@@ -1,4 +1,3 @@
-install.packages("patchwork")
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -8,36 +7,41 @@ library(rgdal)
 library(gstat) # IDW
 
 # vorher "farmlab export Uni Rostock GG.csv" mit Notepad++ in UTF-8 umwandeln
-input <- read.csv("input/farmlab export Uni Rostock GG(1).csv", sep =",", dec= ".", header = TRUE)
-field_name <- input[1,4]
+input <- read.csv("input/farmlab export Uni Rostock GG(3).csv", sep =",", dec= ".", header = TRUE)
+field_name <- input[1,2]
 print(field_name)
+df <- input[, c("Timestamp","Latitude","Longitude","Nmin..kg.ha.","P..mg.100g.","K..beta...mg.100g.","Moisture....",
+                 "pH.","SOC....","Mg..mg.100g.","Soil.texture.class.","Soil.Temperature...C.")]
 
-df <- input[, c(3,5,6,8,14,16,18,20,22,28,30,37)]
-str(df)
+#str(df)
+
 df <- df %>% 
   rename(
+    lat = Latitude,
+    long = Longitude,
     Nmin = Nmin..kg.ha.,
     P = P..mg.100g.,
     K = K..beta...mg.100g.,
     MC  = Moisture....,
-    SOC = SOC....,
     pH = pH.,
+    SOC = SOC....,
     Mg = Mg..mg.100g.,
     Soil_Temp = Soil.Temperature...C.,
-    texture = Soil.texture.class.
+    Texture = Soil.texture.class.
   )
 
-df[, 2:9] <- lapply(df[, 2:9], as.numeric)
+#df[, 4:12] <- lapply(df[, 4:12], as.numeric)
 
 # Add Date column
-df$date <- as.Date(df$timestamp)
+df$date <- as.Date(df$Timestamp)
 
-# If dates are more than 3 days apart, overwrite with the newer date
+# If dates are less than 3 days apart, overwrite with the newer date
 for (x in c(1:30)){
 df <- df %>% 
-  arrange(timestamp) %>% 
+  arrange(desc(Timestamp)) %>% 
   mutate(date = ifelse(abs(date - lag(date, default = date[3])) <= 3, 
-                               lag(date, default = date[3]), date))
+                               lag(date, default = date[3]), date)) %>%
+  arrange(Timestamp)
 }
 
 df$date <- as.Date(df$date, origin = "1970-01-01")
@@ -89,15 +93,15 @@ p <- (p_N|p_P|p_K|p_Mg) / (p_SOC|p_MC|p_pH|p_Tmp)
 ggsave(paste0("Boxplot_",field_name,".png"), p,width=9,height=5.5)
 
 rm(p,p_N,p_P,p_K,p_SOC,p_MC,p_pH,p_Mg,p_Tmp)
-
+dev.off()
 ##############################################################################
 ## Z-Maps
 # Normalization
 df_z <- df %>%
   group_by(date) %>%
-  mutate_at(vars(4:11), ~scale(.)) %>%
+  mutate_at(vars(4:10), ~scale(.)) %>%
   ungroup() %>%
-  mutate(across(4:11, round, digits = 2))
+  mutate(across(4:10, round, digits = 2))
 
 df_z_outliers <- df_z %>%
   filter(rowSums(abs(.[4:10]) > 2.5) > 2) 
@@ -108,52 +112,61 @@ df_z <- df_z %>%
 
 print(paste0(nrow(df)-nrow(df_z)," from ",nrow(df)," deleted"))
 
+write.csv(df_z, paste0("output/",field_name,".csv"))
+
+df_z_25max <- df_z %>%
+  mutate(across(c(4:10), ~ ifelse(. > 2.5, 2.5, ifelse(. < -2.5, -2.5, .))))
+
 dev.off() #sometimes ggplot doesn't work without this
 
 plot_map <- function(data, x, y, color){
   ggplot(data = data, aes(x = {{x}}, y = {{y}}, color = {{color}})) +
-    geom_point(size = 1.5) +
-    scale_colour_gradientn(colours = rainbow(5)) +
+    geom_point(size = 1) +
+    scale_colour_gradient2(low = "magenta", mid = "white", high = "green") +
     theme_classic() +
     theme(axis.title.x = element_blank()) +
     theme(axis.title.y = element_blank()) +
     theme(axis.text.x = element_text(size=5)) +
     theme(axis.text.y = element_text(size=5,angle=90,hjust=0.5))
 }
+#plot_map(df_z,long,lat,color=Nmin)
 
-map_T <- ggplot(data = df, aes(x = long, y = lat, color = factor(texture))) +
+map_T <- ggplot(data = df, aes(x = long, y = lat, color = factor(Texture))) +
   geom_point(size = 1) +
-#  scale_color_gradient2(low ="red",mid="white",high="blue", limits = c(-3,3)) +
-#  scale_color_distiller(type="div",palette ="Spectral") +
-#  scale_color_fermenter(type="div") #continuous -> discrete scale
-  scale_color_brewer(type="seq", palette="OrRd",name="Textur") +
+  scale_color_brewer(palette="OrRd",name="Textur") +   #breaks = c(1,2,3,4,5),labels = c("1","Sandy","Silty","Loamy","5")
   theme_classic() +
   theme(axis.title.x = element_blank()) +
   theme(axis.title.y = element_blank()) +
   theme(axis.text.x = element_text(size=5)) +
   theme(axis.text.y = element_text(size=5,angle=90,hjust=0.5))
 
-map_N   <- plot_map(df_z,long,lat,color=Nmin)
-map_P   <- plot_map(df_z,long,lat,color=P)
-map_SOC <- plot_map(df_z,long,lat,color=SOC)
-map_MC  <- plot_map(df_z,long,lat,color=MC)
-map_pH  <- plot_map(df_z,long,lat,color=pH)
-map_Mg  <- plot_map(df_z,long,lat,color=Mg)
-map_K   <- plot_map(df_z,long,lat,color=K)
+map_N   <- plot_map(df_z_25max,long,lat,color=Nmin)
+map_P   <- plot_map(df_z_25max,long,lat,color=P)
+map_SOC <- plot_map(df_z_25max,long,lat,color=SOC)
+map_MC  <- plot_map(df_z_25max,long,lat,color=MC)
+map_pH  <- plot_map(df_z_25max,long,lat,color=pH)
+map_Mg  <- plot_map(df_z_25max,long,lat,color=Mg)
+map_K   <- plot_map(df_z_25max,long,lat,color=K)
 
 (map_N|map_P|map_K|map_Mg)/( map_SOC|map_MC|map_pH|map_T)
 p_map <- (map_N|map_P|map_K|map_Mg)/( map_SOC|map_MC|map_pH|map_T)
 ggsave(paste0("zmap_",field_name,".png"),p_map,width=10,height=3.5)
 
 rm(p_map,map_T,map_N,map_P,map_SOC,map_MC,map_pH,map_Mg,map_K)
-
+dev.off()
 ##############################################################################
 ## k-means clustering
 
-#Plot all the data, to see if there are some relations between them
-plot(df_z[,c(4:11)])
+#Correlation matrix
+library(corrplot)
+corr_m <- cor(df_z[,c(4:11)]) %>% round(2)
+corr_p <- corrplot(corr_m, type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
 
-df_k <- df_z[,c(4:11)]
+png(paste0("correlation_matrix_",field_name,".png"),width=400,height=400)
+print(corr_p)
+dev.off()
+
+df_k <- df_z[,c(4:12)]
 library (hopkins)
 
 # Hopkins Test to test the probability that the data has a uniform random distribution 
